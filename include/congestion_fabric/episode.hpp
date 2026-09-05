@@ -27,11 +27,17 @@ struct CongestionEpisode {
   EntityRef<Resource> bottleneck;
   std::vector<BackpressureAction> actions;
   CongestionState outcome{CongestionState::UNKNOWN};
-  bool open{true};
+  // A default (never-opened) episode is closed. open becomes true only when the
+  // engine opens a real, generation-bound episode.
+  bool open{false};
 
   bool valid() const noexcept {
-    return event_id.is_valid() && generation.is_valid() &&
-           domain.id.is_valid() && start_ms <= end_ms;
+    if (!event_id.is_valid() || !generation.is_valid()) return false;
+    if (!domain.id.is_valid()) return false;
+    // An open episode legitimately has end_ms == 0 (not yet closed). A closed
+    // episode must have a non-decreasing boundary.
+    if (!open && end_ms < start_ms) return false;
+    return true;
   }
 };
 

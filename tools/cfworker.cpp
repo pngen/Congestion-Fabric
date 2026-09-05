@@ -44,6 +44,7 @@ void arg_scan(int argc, char** argv) {
     else if (!std::strcmp(a, "--source")) g_source = rd_ll(next());
     else if (!std::strcmp(a, "--sboot")) g_sboot = rd_ll(next());
     else if (!std::strcmp(a, "--domain")) g_domain = rd_ll(next());
+    else if (!std::strcmp(a, "--dgen")) g_dgen = rd_ll(next());
     else if (!std::strcmp(a, "--bytes")) g_bytes = rd_ll(next());
     else if (!std::strcmp(a, "--delta")) g_delta = rd_ll(next());
     else if (!std::strcmp(a, "--class")) g_class = rd_ll(next());
@@ -246,6 +247,43 @@ int main(int argc, char** argv) {
       recv_frame(s, f);
       std::printf("CONTROL_DONE state=%d\n", rc);
     }
+  }
+  else if (g_scenario == "replay") {
+    // Stale Worker A authority replay. Register with the OLD (already fenced)
+    // boot, then attempt live measurement + progress + completion against the
+    // now-stale flow. Every operation must be rejected before touching current
+    // state.
+    bool register_rejected = false;
+    { Writer b; b.u64(g_worker); b.u64(g_boot); b.u64(g_source); b.u64(g_sboot);
+      send_frame(s, proto::MessageType::REGISTER, b.data());
+      proto::Frame f; recv_frame(s, f);
+      if (f.type == proto::MessageType::REGISTER_ACK) {
+        Reader r(f.body); std::uint8_t ack = r.u8();
+        register_rejected = (ack == 0);
+      } else register_rejected = true;
+    }
+    bool measure_rejected = false;
+    { Writer b; b.u64(g_domain);
+      b.u8(static_cast<std::uint8_t>(MeasurementKind::OFFERED_BYTES_PER_SEC)); b.f64(g_offered);
+      b.u8(static_cast<std::uint8_t>(MeasurementProvenance::REPORTED)); b.f64(1.0);
+      send_frame(s, proto::MessageType::PUBLISH_MEASUREMENT, b.data());
+      proto::Frame f; measure_rejected = (recv_frame(s, f) && f.type == proto::MessageType::NACK);
+    }
+    bool progress_rejected = false;
+    { Writer b; b.u64(g_domain); b.u64(g_dgen); b.u64(g_boot); b.u64(g_delta);
+      send_frame(s, proto::MessageType::PROGRESS, b.data());
+      proto::Frame f; progress_rejected = (recv_frame(s, f) && f.type == proto::MessageType::NACK);
+    }
+    bool complete_rejected = false;
+    { Writer b; b.u64(g_domain); b.u64(g_dgen); b.u64(g_boot);
+      send_frame(s, proto::MessageType::COMPLETE, b.data());
+      proto::Frame f; complete_rejected = (recv_frame(s, f) && f.type == proto::MessageType::NACK);
+    }
+    bool all = register_rejected && measure_rejected && progress_rejected && complete_rejected;
+    std::printf("REPLAY register_rejected=%d measure_nack=%d progress_nack=%d complete_nack=%d all_rejected=%d\n",
+                register_rejected ? 1 : 0, measure_rejected ? 1 : 0, progress_rejected ? 1 : 0,
+                complete_rejected ? 1 : 0, all ? 1 : 0);
+    rc = all ? 0 : 1;
   }
   else if (g_scenario == "shutdown") { send_frame(s, proto::MessageType::SHUTDOWN, {}); proto::Frame f; recv_frame(s, f); rc = 0; }
   else if (g_scenario == "fence") { Writer b; b.u64(g_worker); b.u64(g_boot); send_frame(s, proto::MessageType::FENCE_WORKER, b.data()); proto::Frame f; rc = (recv_frame(s, f) && f.type == proto::MessageType::OK) ? 0 : 1; }

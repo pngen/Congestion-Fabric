@@ -139,6 +139,12 @@ class CongestionFabric {
 
   // ---- measurements -----------------------------------------------------------
   bool publish_measurement(CongestionDomainId domain, Measurement m);
+  // Authority-gated publication: the owning worker must be the current boot for
+  // its WorkerId, otherwise the measurement is rejected as stale. Records which
+  // worker owns the current offered/serviced aggregate so it can be invalidated
+  // when that worker dies.
+  bool publish_measurement(CongestionDomainId domain, Measurement m, WorkerId owner,
+                           WorkerBootId owner_boot);
 
   // ---- congestion analysis -----------------------------------------------------
   CongestionAssessment assess_congestion(CongestionDomainId domain) const;

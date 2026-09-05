@@ -43,6 +43,11 @@ if(CONGFABRIC_BUILD_CUDA_PROOFS AND POWERSHELL_EXEC)
   add_test(NAME cf_cuda_death
     COMMAND ${POWERSHELL_EXEC} -NoProfile -ExecutionPolicy Bypass -File ${CMAKE_CURRENT_SOURCE_DIR}/cuda_death.ps1
             -CudaDir ${CMAKE_BINARY_DIR}/cuda -WorkDir ${CMAKE_BINARY_DIR}/cudadeath)
+  if(CONGFABRIC_BUILD_TOOLS)
+    add_test(NAME cf_cuda_integrated
+      COMMAND ${POWERSHELL_EXEC} -NoProfile -ExecutionPolicy Bypass -File ${CMAKE_CURRENT_SOURCE_DIR}/cuda_integrated.ps1
+              -ToolsDir ${CMAKE_BINARY_DIR}/tools -CudaDir ${CMAKE_BINARY_DIR}/cuda -WorkDir ${CMAKE_BINARY_DIR}/cudaint)
+  endif()
 endif()
 
 if(CONGFABRIC_ENABLE_ASAN)

@@ -211,7 +211,10 @@ void handle(SOCKET s, CongestionFabric& eng, proto::Frame& f, WorkerId& ctx_wid,
         m.value = r.f64();
         m.provenance = static_cast<MeasurementProvenance>(r.u8());
         m.confidence = r.f64();
-        if (eng.publish_measurement(d, m)) ok(s); else nack(s);
+        // Live measurement publication requires an authoritative, registered
+        // worker (fresh boot). A stale or unregistered session is rejected.
+        if (!ctx_wid.is_valid()) { nack(s); break; }
+        if (eng.publish_measurement(d, m, ctx_wid, ctx_boot)) ok(s); else nack(s);
         break;
       }
       case proto::MessageType::QUERY_CONGESTION: {
@@ -372,7 +375,9 @@ int main(int argc, char** argv) {
   g_listener = INVALID_SOCKET;
   for (auto& t : threads) if (t.joinable()) t.join();
 
-  if (!state.empty()) eng.save(state);
+  if (!state.empty()) {
+    eng.save(state);
+  }
   std::fprintf(stderr, "coordinator: shutting down\n");
   net::cleanup();
   return 0;

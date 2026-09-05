@@ -8,7 +8,7 @@ target_link_libraries(cu_proof PRIVATE CongestionFabric::CongestionFabric)
 
 add_executable(cu_worker cu_worker.cu)
 target_compile_options(cu_worker PRIVATE --allow-unsupported-compiler)
-target_link_libraries(cu_worker PRIVATE CongestionFabric::CongestionFabric)
+target_link_libraries(cu_worker PRIVATE CongestionFabric::CongestionFabric ws2_32)
 
 if(CONGFABRIC_ENABLE_ASAN)
   # CUDA + ASan is not a supported combination for the MSVC/nvcc host toolchain.

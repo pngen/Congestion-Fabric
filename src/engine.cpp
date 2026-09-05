@@ -325,6 +325,37 @@ bool CongestionFabric::fence_worker(WorkerId w, WorkerBootId dead_boot) {
       f.state = FlowState::STALE;
     }
   }
+  // Invalidate worker-owned live domain measurements so the dead worker's
+  // offered/serviced evidence cannot remain authoritative. The domain becomes
+  // REVALIDATION_REQUIRED (never silently healthy) because a worker died and its
+  // dynamic evidence must be republished before current congestion is asserted.
+  bool any_invalidated = false;
+  for (auto& [did, d] : impl_->domains_) {
+    (void)did;
+    bool owns_offered = d.offered_owner.is_valid() && d.offered_owner == w &&
+                        d.offered_owner_boot == dead_boot;
+    bool owns_serviced = d.serviced_owner.is_valid() && d.serviced_owner == w &&
+                         d.serviced_owner_boot == dead_boot;
+    if (owns_offered) {
+      d.offered_bps = 0.0;
+      d.offered_provenance = MeasurementProvenance::UNKNOWN;
+      d.offered_owner = WorkerId(0);
+      any_invalidated = true;
+    }
+    if (owns_serviced) {
+      d.serviced_bps = 0.0;
+      d.serviced_provenance = MeasurementProvenance::UNKNOWN;
+      d.serviced_owner = WorkerId(0);
+      any_invalidated = true;
+    }
+    if (any_invalidated) {
+      d.queue.generation = d.queue.generation.next();
+      if (d.state != CongestionState::UNKNOWN) {
+        d.state = CongestionState::REVALIDATION_REQUIRED;
+        d.state_provenance = MeasurementProvenance::UNKNOWN;
+      }
+    }
+  }
   return true;
 }
 
@@ -629,12 +660,20 @@ std::uint64_t CongestionFabric::live_flow_count() const {
   return impl_->active_flows_;
 }
 
-bool CongestionFabric::publish_measurement(CongestionDomainId domain, Measurement m) {
+bool CongestionFabric::publish_measurement(CongestionDomainId domain, Measurement m,
+                                           WorkerId owner, WorkerBootId owner_boot) {
   if (!m.valid()) return false;
   std::unique_lock lk(impl_->mtx);
   auto it = impl_->domains_.find(domain);
   if (it == impl_->domains_.end()) return false;
   CongestionDomain& d = it->second;
+  // Authority gate: an owned measurement must come from the current boot of its
+  // worker. A stale boot is rejected so old worker evidence cannot be republished
+  // as fresh after the worker was fenced / restarted.
+  if (owner.is_valid()) {
+    auto wit = impl_->worker_boot_.find(owner);
+    if (wit == impl_->worker_boot_.end() || wit->second != owner_boot) return false;
+  }
   // Fresh evidence republished after conservative recovery clears the
   // revalidation requirement so the domain can be re-evaluated.
   if (d.state == CongestionState::REVALIDATION_REQUIRED || d.state == CongestionState::STALE)
@@ -644,6 +683,8 @@ bool CongestionFabric::publish_measurement(CongestionDomainId domain, Measuremen
     case MeasurementKind::OFFERED_BYTES_PER_SEC:
       d.offered_bps = m.value;
       d.offered_provenance = m.provenance;
+      d.offered_owner = owner;
+      d.offered_owner_boot = owner_boot;
       break;
     case MeasurementKind::ADMITTED_BYTES_PER_SEC:
       d.admitted_bps = m.value;
@@ -652,6 +693,8 @@ bool CongestionFabric::publish_measurement(CongestionDomainId domain, Measuremen
     case MeasurementKind::COMPLETED_BYTES_PER_SEC:
       d.serviced_bps = m.value;
       d.serviced_provenance = m.provenance;
+      d.serviced_owner = owner;
+      d.serviced_owner_boot = owner_boot;
       break;
     case MeasurementKind::UTILIZATION:
       d.utilisation = m.value;
@@ -665,6 +708,12 @@ bool CongestionFabric::publish_measurement(CongestionDomainId domain, Measuremen
       break;
   }
   return true;
+}
+
+bool CongestionFabric::publish_measurement(CongestionDomainId domain, Measurement m) {
+  // Non-authority API used by the engine API / tests: records the measurement as
+  // unowned (never invalidated automatically).
+  return publish_measurement(domain, m, WorkerId(0), WorkerBootId(0));
 }
 
 // The classify helper (deterministic, evidence-based).

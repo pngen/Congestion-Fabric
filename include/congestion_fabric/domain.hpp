@@ -79,10 +79,16 @@ struct CongestionDomain {
   // genuinely measured).
   double offered_bps{0.0};
   MeasurementProvenance offered_provenance{MeasurementProvenance::UNKNOWN};
+  // Authority that published the current offered/serviced aggregate. Used to
+  // invalidate worker-owned live evidence on worker death. Invalid == unowned.
+  WorkerId offered_owner;
+  WorkerBootId offered_owner_boot;
   double admitted_bps{0.0};
   MeasurementProvenance admitted_provenance{MeasurementProvenance::UNKNOWN};
   double serviced_bps{0.0};
   MeasurementProvenance serviced_provenance{MeasurementProvenance::UNKNOWN};
+  WorkerId serviced_owner;
+  WorkerBootId serviced_owner_boot;
 
   double utilisation{0.0};
   MeasurementProvenance utilisation_provenance{MeasurementProvenance::UNKNOWN};
