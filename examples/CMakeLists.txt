@@ -1,0 +1,2 @@
+add_executable(cf_example_basic basic.cpp)
+target_link_libraries(cf_example_basic PRIVATE CongestionFabric::CongestionFabric)

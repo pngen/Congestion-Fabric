@@ -1,0 +1,21 @@
+# Build directories
+/build/
+/build-debug/
+/build-asan/
+/build/install/
+/cmake-build-*/
+/out/
+# Machine-specific local build helpers (dev-only)
+/scripts/
+# Native / object / pdb artifacts
+*.obj
+*.lib
+*.pdb
+*.exp
+*.exe
+*.dll
+*.ilk
+# Test/temp artifacts
+*.bin
+*.log
+.vs/
