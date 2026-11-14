@@ -16,6 +16,17 @@ add_executable(cf_physical physical_traffic.cpp)
 target_link_libraries(cf_physical PRIVATE CongestionFabric::CongestionFabric ws2_32)
 add_test(NAME cf_physical COMMAND cf_physical)
 
+add_executable(cf_regression regression.cpp)
+target_link_libraries(cf_regression PRIVATE CongestionFabric::CongestionFabric)
+add_test(NAME cf_regression COMMAND cf_regression)
+
+if(WIN32 AND CONGFABRIC_BUILD_TOOLS)
+  add_executable(cf_coordinator_session coordinator_session.cpp)
+  target_link_libraries(cf_coordinator_session PRIVATE CongestionFabric::CongestionFabric ws2_32)
+  target_compile_definitions(cf_coordinator_session PRIVATE CF_COORDINATOR_EXE="$<TARGET_FILE:cfcoordinator>")
+  add_test(NAME cf_coordinator_session COMMAND cf_coordinator_session)
+endif()
+
 add_executable(cf_property property.cpp)
 target_link_libraries(cf_property PRIVATE CongestionFabric::CongestionFabric)
 add_test(NAME cf_property COMMAND cf_property)

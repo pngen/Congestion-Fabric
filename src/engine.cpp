@@ -329,9 +329,10 @@ bool CongestionFabric::fence_worker(WorkerId w, WorkerBootId dead_boot) {
   // offered/serviced evidence cannot remain authoritative. The domain becomes
   // REVALIDATION_REQUIRED (never silently healthy) because a worker died and its
   // dynamic evidence must be republished before current congestion is asserted.
-  bool any_invalidated = false;
   for (auto& [did, d] : impl_->domains_) {
     (void)did;
+    // Per domain: only a domain that held the dead worker's evidence changes.
+    bool any_invalidated = false;
     bool owns_offered = d.offered_owner.is_valid() && d.offered_owner == w &&
                         d.offered_owner_boot == dead_boot;
     bool owns_serviced = d.serviced_owner.is_valid() && d.serviced_owner == w &&
@@ -540,12 +541,8 @@ bool CongestionFabric::start_flow(const EntityRef<Flow>& ref, WorkerBootId boot)
   if (f->in_flight_bytes.value() > f->admitted_bytes.value()) return false;
   f->started_ms = now_ms();
   f->last_progress_ms = f->started_ms;
-  auto dit = impl_->domains_.find(f->domain.id);
-  if (dit != impl_->domains_.end()) {
-    CongestionDomain& d = dit->second;
-    if (d.state == CongestionState::REVALIDATION_REQUIRED || d.state == CongestionState::STALE)
-      d.state = CongestionState::UNKNOWN;
-  }
+  // Starting a flow republishes none of the domain's offered/serviced evidence,
+  // so a revalidation requirement on the domain stays in place.
   return true;
 }
 
@@ -676,7 +673,12 @@ bool CongestionFabric::publish_measurement(CongestionDomainId domain, Measuremen
   }
   // Fresh evidence republished after conservative recovery clears the
   // revalidation requirement so the domain can be re-evaluated.
-  if (d.state == CongestionState::REVALIDATION_REQUIRED || d.state == CongestionState::STALE)
+  // Only republished offered or serviced load (the evidence a fence or a restart
+  // invalidates) clears the requirement; any other measurement would let the
+  // domain be classified from evidence that was never republished.
+  if ((d.state == CongestionState::REVALIDATION_REQUIRED || d.state == CongestionState::STALE) &&
+      (m.kind == MeasurementKind::OFFERED_BYTES_PER_SEC ||
+       m.kind == MeasurementKind::COMPLETED_BYTES_PER_SEC))
     d.state = CongestionState::UNKNOWN;
   d.measurements.put(m);
   switch (m.kind) {
@@ -1200,6 +1202,12 @@ void CongestionFabric::recover_dynamic_evidence() {
   impl_->recovered_ = true;
   for (auto& [id, d] : impl_->domains_) {
     (void)id;
+    // Current offered/serviced load is dynamic evidence: republished
+    // measurements replace it rather than combine with the old values.
+    d.offered_bps = 0.0;
+    d.offered_provenance = MeasurementProvenance::UNKNOWN;
+    d.serviced_bps = 0.0;
+    d.serviced_provenance = MeasurementProvenance::UNKNOWN;
     if (d.state == CongestionState::UNKNOWN) continue;
     d.state = CongestionState::REVALIDATION_REQUIRED;
     d.state_provenance = MeasurementProvenance::UNKNOWN;
@@ -1508,6 +1516,11 @@ bool CongestionFabric::load(const std::string& path) {
       // congestion is asserted.
       for (auto& [did, d] : impl_->domains_) {
         (void)did;
+        // Pre-restart offered/serviced load is not current evidence.
+        d.offered_bps = 0.0;
+        d.offered_provenance = MeasurementProvenance::UNKNOWN;
+        d.serviced_bps = 0.0;
+        d.serviced_provenance = MeasurementProvenance::UNKNOWN;
         if (d.state != CongestionState::UNKNOWN) {
           d.state = CongestionState::REVALIDATION_REQUIRED;
           d.state_provenance = MeasurementProvenance::UNKNOWN;

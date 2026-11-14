@@ -100,11 +100,15 @@ void handle(SOCKET s, CongestionFabric& eng, proto::Frame& f, WorkerId& ctx_wid,
         WorkerBootId b(r.u64());
         SourceId s1(r.u64());
         SourceBootId s2(r.u64());
-        ctx_wid = w;
-        ctx_boot = b;
         bool a = eng.register_worker(w, b);
         bool c = eng.register_source(s1, s2);
-        (void)a; (void)c;
+        // Only an accepted registration binds this session to the incarnation: a
+        // rejected one must not fence the live incarnation when it disconnects,
+        // nor publish measurements under its boot.
+        if (a) {
+          ctx_wid = w;
+          ctx_boot = b;
+        }
         Writer body;
         body.u8(a && c ? 1 : 0);
         send_frame(s, proto::MessageType::REGISTER_ACK, body.data());
